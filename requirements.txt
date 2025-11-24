@@ -1,0 +1,10 @@
+pandas
+numpy
+python-dotenv
+supabase
+sqlalchemy
+psycopg2-binary
+scikit-learn
+streamlit
+pyarrow
+lxml
