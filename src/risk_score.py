@@ -1,37 +1,69 @@
 import pandas as pd
 from supabase_client import get_supabase_client
 
-def compute_risk_score(row):
 
+def score_band(value, bands):
+    """Return the score for the first matching band.
+
+    If the value is missing/NaN, return 0 so that missing metrics are neutral
+    rather than penalized.
+    """
+    if pd.isna(value):
+        return 0
+
+    for predicate, points in bands:
+        if predicate(value):
+            return points
+
+    return 0
+
+
+RULE_BASED_V2_BANDS = {
+    "steps": [
+        (lambda v: v < 3000, 30),
+        (lambda v: v < 6000, 15),
+        (lambda v: True, 5),
+    ],
+    "sleep_minutes": [
+        (lambda v: v < 360, 30),
+        (lambda v: v < 420, 15),
+        (lambda v: True, 5),
+    ],
+    "resting_hr": [
+        (lambda v: v > 85, 30),
+        (lambda v: v > 75, 15),
+        (lambda v: True, 5),
+    ],
+    "active_minutes": [
+        (lambda v: v < 30, 20),
+        (lambda v: v < 60, 10),
+        (lambda v: True, 5),
+    ],
+    "active_energy_kcal": [
+        (lambda v: v < 300, 20),
+        (lambda v: v < 600, 10),
+        (lambda v: True, 5),
+    ],
+    "spo2_avg": [
+        (lambda v: v < 94, 30),
+        (lambda v: v < 96, 15),
+        (lambda v: True, 5),
+    ],
+    "stress_avg": [
+        (lambda v: v > 75, 30),
+        (lambda v: v > 50, 15),
+        (lambda v: True, 5),
+    ],
+    # Metrics not yet in daily_metrics (HRV, VO₂max, walking HR) are intentionally
+    # omitted to avoid penalizing missing values.
+}
+
+
+def compute_risk_score(row):
     score = 0
 
-    # Steps contribution (inverse: fewer steps → higher risk)
-    if pd.notna(row.get("steps")):
-        if row["steps"] < 3000:
-            score += 30
-        elif row["steps"] < 6000:
-            score += 15
-        else:
-            score += 5
-
-    # Sleep contribution
-    if pd.notna(row.get("sleep_minutes")):
-        sleep = row["sleep_minutes"]
-        if sleep < 360:  # < 6 hours
-            score += 30
-        elif sleep < 420:  # < 7 hours
-            score += 15
-        else:
-            score += 5
-
-    # Resting HR contribution (higher → higher risk)
-    if pd.notna(row.get("resting_hr")):
-        if row["resting_hr"] > 85:
-            score += 30
-        elif row["resting_hr"] > 75:
-            score += 15
-        else:
-            score += 5
+    for metric, bands in RULE_BASED_V2_BANDS.items():
+        score += score_band(row.get(metric), bands)
 
     # Normalize to 0–100
     return min(score, 100)
@@ -59,7 +91,7 @@ def upsert_risk_predictions(df, user_id):
         rows.append({
             "user_id": user_id,
             "date": str(row["date"]),
-            "model_name": "rule_based_v1",
+            "model_name": "rule_based_v2",
             "risk_score": float(row["risk_score"]),
             "risk_level": row["risk_level"]
         })
